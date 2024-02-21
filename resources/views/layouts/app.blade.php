@@ -34,7 +34,7 @@
             @endif
 
             <!-- Page Content -->
-            <main>
+            <main class="container mx-auto py-4">
                 {{ $slot }}
             </main>
         </div>
