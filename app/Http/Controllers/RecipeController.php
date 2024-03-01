@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Recipe;
+use App\Models\Category;
+use Illuminate\Support\Facades\Redis;
 
 class RecipeController extends Controller
 {
@@ -36,15 +38,39 @@ class RecipeController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
+        $filters = $request->all();
         // レシピを取得
-        $recipes = Recipe::select('recipes.id', 'recipes.title', 'recipes.description', 'recipes.created_at', 'recipes.image', 'users.name')
+        $query = Recipe::query()->select('recipes.id', 'recipes.title', 'recipes.description', 'recipes.created_at', 'recipes.image', 'users.name',
+            \DB::raw('AVG(reviews.rating) as rating'))
             ->join('users', 'users.id', '=', 'recipes.user_id')
-            ->orderBy('recipes.created_at', 'desc')
-            ->get();
+            ->leftJoin('reviews', 'reviews.recipe_id', '=', 'recipes.id')
+            ->groupBy('recipes.id')
+            ->orderBy('recipes.created_at', 'desc');
 
-        return view('recipes.index', compact('recipes'));
+        if( ! empty($filters)) {
+            // カテゴリー
+            if( ! empty($filters['categories'])) {
+                $query->whereIn('recipes.category_id', $filters['categories']);
+            }
+
+            // タイトル（like検索）
+            if( ! empty($filters['title'])) {
+                $query->where('recipes.title', 'like', '%'.$filters['title'].'%');
+            }
+
+            // 評価
+            if( ! empty($filters['rating'])) {
+                $query->havingRaw('AVG(reviews.rating) >= ?', [$filters['rating']]);
+            }
+
+        }
+        $recipes = $query->paginate(5);
+
+        $categories = Category::all();
+
+        return view('recipes.index', compact('recipes', 'categories', 'filters'));
 
     }
 
