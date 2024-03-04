@@ -11,7 +11,7 @@ class Recipe extends Model
     use HasFactory;
     use SoftDeletes;
 
-    protected $cast = [
+    protected $casts = [
         'id' => 'string'
     ];
 }
