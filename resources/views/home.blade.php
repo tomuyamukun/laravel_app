@@ -17,7 +17,7 @@
             <h2 class="text-2xl font-bold mb-2">新着レシピ</h2>
             @foreach($recipes as $recipe)
                 <!-- レシピカードをコンポーネント化して使い回せるようにしている  -->
-                @include('recipes..partial.horizontal-card')
+                @include('recipes.partial.horizontal-card')
             @endforeach
             <a href="{{route('recipe.index')}}" class="text-gray-600 block text-right">すべてのレシピへ ></a>
         </div>
@@ -39,7 +39,7 @@
                     </div>
                 @endforeach
             </div>
-            <a href="" class='text-gray-600 block text-right'>すべての人気レシピへ</a>
+            <a href="{{ route('recipe.show', ['id' => $recipe['id']]) }}" class='text-gray-600 block text-right'>すべての人気レシピへ</a>
         </div>
         <div class="col-span-1 bg-gray ml-4"></div>
     </div>
