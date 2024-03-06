@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\Recipe;
 use App\Models\Category;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 class RecipeController extends Controller
 {
@@ -79,7 +81,9 @@ class RecipeController extends Controller
      */
     public function create()
     {
-        //
+        $categories = Category::all();
+
+        return view('recipes.create', compact('categories'));
     }
 
     /**
@@ -87,7 +91,18 @@ class RecipeController extends Controller
      */
     public function store(Request $request)
     {
-        //
+        $post = $request->all();
+
+        // s3に画像をアップロード
+        // s3のURL取得
+        // DBにs3のURLを保存
+        Recipe::insert([
+            'id' => Str::uuid(),
+            'title' => $post['title'],
+            'description' => $post['description'],
+            'category_id' => $post['category'],
+            'user_id' => Auth::id()
+        ]);
     }
 
     /**
