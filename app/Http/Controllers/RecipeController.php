@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use App\Models\Step;
 
 class RecipeController extends Controller
 {
@@ -92,7 +93,8 @@ class RecipeController extends Controller
      */
     public function store(Request $request)
     {
-        $post = $request->all();
+        $posts = $request->all();
+        $uuid = Str::uuid()->toString();
 
         // s3に画像をアップロード
         $image = $request->file('image');
@@ -102,13 +104,25 @@ class RecipeController extends Controller
 
         // DBにs3のURLを保存
         Recipe::insert([
-            'id' => Str::uuid(),
-            'title' => $post['title'],
-            'description' => $post['description'],
-            'category_id' => $post['category'],
+            'id' => $uuid,
+            'title' => $posts['title'],
+            'description' => $posts['description'],
+            'category_id' => $posts['category'],
             'image' => $url,
             'user_id' => Auth::id()
         ]);
+
+        // stepを作成
+        $steps = [];
+        foreach ($posts['steps'] as $key => $step) {
+            $step[$key] = [
+                'recipe_id' => $uuid,
+                'step_number' => $key + 1,
+                'description' => $step
+            ];
+        }
+        STEP::insert($steps);
+
     }
 
     /**
