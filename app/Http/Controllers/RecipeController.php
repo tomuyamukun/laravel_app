@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Recipe;
 use App\Models\Category;
+use App\Models\Ingredient;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
@@ -111,6 +112,16 @@ class RecipeController extends Controller
             'image' => $url,
             'user_id' => Auth::id()
         ]);
+
+        $ingredients = [];
+        foreach($posts['ingredients'] as $key => $ingredient) {
+            $ingredient[$key] = [
+                'recipe_id' => $uuid,
+                'name' => $ingredient['name'],
+                'quantity' => $ingredient['quantity']
+            ];
+        }
+        Ingredient::insert($ingredients);
 
         // stepを作成
         $steps = [];
