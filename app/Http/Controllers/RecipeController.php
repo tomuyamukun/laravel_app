@@ -10,7 +10,11 @@ use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
+use App\Http\Requests\RecipeCreateRequest;
 use App\Models\Step;
+
+use function PHPUnit\Framework\throwException;
 
 class RecipeController extends Controller
 {
@@ -92,7 +96,7 @@ class RecipeController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(RecipeCreateRequest $request)
     {
         $posts = $request->all();
         $uuid = Str::uuid()->toString();
@@ -104,36 +108,46 @@ class RecipeController extends Controller
         $url = Storage::disk('s3')->url($path);
 
         // DBにs3のURLを保存
-        Recipe::insert([
-            'id' => $uuid,
-            'title' => $posts['title'],
-            'description' => $posts['description'],
-            'category_id' => $posts['category'],
-            'image' => $url,
-            'user_id' => Auth::id()
-        ]);
+        try {
+            DB::beginTransaction();
+            Recipe::insert([
+                'id' => $uuid,
+                'title' => $posts['title'],
+                'description' => $posts['description'],
+                'category_id' => $posts['category'],
+                'image' => $url,
+                'user_id' => Auth::id()
+            ]);
 
-        $ingredients = [];
-        foreach($posts['ingredients'] as $key => $ingredient) {
-            $ingredient[$key] = [
-                'recipe_id' => $uuid,
-                'name' => $ingredient['name'],
-                'quantity' => $ingredient['quantity']
-            ];
+            $ingredients = [];
+            foreach($posts['ingredients'] as $key => $ingredient) {
+                $ingredient[$key] = [
+                    'recipe_id' => $uuid,
+                    'name' => $ingredient['name'],
+                    'quantity' => $ingredient['quantity']
+                ];
+            }
+            Ingredient::insert($ingredients);
+
+            // stepを作成
+            $steps = [];
+            foreach ($posts['steps'] as $key => $step) {
+                $steps[$key] = [
+                    'recipe_id' => $uuid,
+                    'step_number' => $key + 1,
+                    'description' => $step
+                ];
+            }
+            STEP::insert($steps);
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollback();
+            \Log::debug(print_r($e->getMessage(), true));
+            throw $e;
         }
-        Ingredient::insert($ingredients);
 
-        // stepを作成
-        $steps = [];
-        foreach ($posts['steps'] as $key => $step) {
-            $step[$key] = [
-                'recipe_id' => $uuid,
-                'step_number' => $key + 1,
-                'description' => $step
-            ];
-        }
-        STEP::insert($steps);
-
+        flash()->success('レシピ投稿したぞ');
+        return redirect()->route('recipe.show',['id' => $uuid]);
     }
 
     /**
