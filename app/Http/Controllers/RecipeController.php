@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use App\Http\Requests\RecipeCreateRequest;
+use App\Http\Requests\RecipeUpdateRequest;
 use App\Models\Step;
 
 use function PHPUnit\Framework\throwException;
@@ -23,7 +24,6 @@ class RecipeController extends Controller
      */
     public function home()
     {
-
         // レシピを取得
         $recipes = Recipe::select('recipes.id', 'recipes.title', 'recipes.description', 'recipes.created_at', 'recipes.image', 'users.name')
             ->join('users', 'users.id', '=', 'recipes.user_id')
@@ -121,7 +121,7 @@ class RecipeController extends Controller
 
             $ingredients = [];
             foreach($posts['ingredients'] as $key => $ingredient) {
-                $ingredient[$key] = [
+                $ingredients[$key] = [
                     'recipe_id' => $uuid,
                     'name' => $ingredient['name'],
                     'quantity' => $ingredient['quantity']
@@ -159,10 +159,16 @@ class RecipeController extends Controller
             ->where('recipes.id', $id)
             ->first();
 
+        // レシピの投稿者とログインユーザーが一致しているか
+        $is_my_recipe = false;
+        if (Auth::check() && (Auth::id() === $recipe['user_id'])) {
+            $is_my_recipe = true;
+        }
+
         // viewを１増やす
         $recipe_record = Recipe::find($id);
         $recipe_record->increment('views');
-        return view('recipes.show', compact('recipe'));
+        return view('recipes.show', compact('recipe', 'is_my_recipe'));
     }
 
     /**
@@ -170,15 +176,76 @@ class RecipeController extends Controller
      */
     public function edit(string $id)
     {
-        //
+        $recipe = Recipe::with(['ingredients', 'steps', 'reviews', 'user'])
+            ->where('recipes.id', $id)
+            ->first()
+            ->toArray();
+
+        if( ! Auth::check() && (Auth::id() === $recipe['user_id'])) abort(403);
+
+        $categories = Category::all();
+
+        return view('recipes.edit', compact('recipe', 'categories'));
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(RecipeUpdateRequest $request, string $id)
     {
-        //
+        $posts = $request->all();
+        $update_array = [
+            'title' => $posts['title'],
+            'description' => $posts['description'],
+            'category_id' => $posts['category_id']
+        ];
+
+        // 画像の更新があるかどうかでurlを判定
+        if ($request->hasFile('image')) {
+            $image = $request->file('image');
+            $path = Storage::disk('s3')->putFile('recipe', $image, 'public');
+            // s3のURL取得
+            $url = Storage::disk('s3')->url($path);
+            $update_array['image'] = $url;
+        }
+
+        try {
+            DB::beginTransaction();
+            Recipe::where('id', $id)->update($update_array);
+
+            // 更新前のものを削除
+            Ingredient::where('recipe_id', $id)->delete();
+            Step::where('recipe_id', $id)->delete();
+
+            // 更新用のパラメータでinsert
+            $ingredients = [];
+            foreach($posts['ingredients'] as $key => $ingredient) {
+                $ingredients[$key] = [
+                    'recipe_id' => $id,
+                    'name' => $ingredient['name'],
+                    'quantity' => $ingredient['quantity']
+                ];
+            }
+            Ingredient::insert($ingredients);
+
+            // stepを作成
+            $steps = [];
+            foreach ($posts['steps'] as $key => $step) {
+                $steps[$key] = [
+                    'recipe_id' => $id,
+                    'step_number' => $key + 1,
+                    'description' => $step
+                ];
+            }
+            STEP::insert($steps);
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::debug(print_r($e->getMessage()));
+        }
+
+        flash()->success('レシピを更新しました！');
+        return redirect()->route('recipe.show', ['id' => $id]);
     }
 
     /**
