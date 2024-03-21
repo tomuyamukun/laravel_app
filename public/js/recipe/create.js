@@ -105,4 +105,12 @@ window.onload = function () {
         `;
         ingredients.appendChild(ingredient);
     })
+
+    // destroy
+    let destroy = document.getElementById('delete');
+    destroy.addEventListener('click', (e) => {
+        if ( ! confirm('本当に削除しますか？')) {
+            e.preventDefault();
+        }
+    })
 }

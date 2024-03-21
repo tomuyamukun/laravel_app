@@ -62,4 +62,11 @@
         <!-- add button -->
         <button type="button" id="step-add" class="text-white font-bold py-2 px-4 rounded bg-gray-500 hover:bg-gray-700">手順を追加する</button>
     </form>
+    <form action="{{ route('recipe.destroy', ['id' => $recipe['id']]) }}" method="POST" class="w-10/12 mx-auto my-6">
+        @csrf
+        @method('DELETE')
+        <div class="flex justify-center">
+            <button type="submit" id="delete" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">レシピを削除する</button>
+        </div>
+    </form>
 </x-app-layout>

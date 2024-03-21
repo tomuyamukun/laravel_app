@@ -159,16 +159,22 @@ class RecipeController extends Controller
             ->where('recipes.id', $id)
             ->first();
 
+        // viewを１増やす
+        $recipe_record = Recipe::find($id);
+        $recipe_record->increment('views');
+
         // レシピの投稿者とログインユーザーが一致しているか
         $is_my_recipe = false;
         if (Auth::check() && (Auth::id() === $recipe['user_id'])) {
             $is_my_recipe = true;
         }
 
-        // viewを１増やす
-        $recipe_record = Recipe::find($id);
-        $recipe_record->increment('views');
-        return view('recipes.show', compact('recipe', 'is_my_recipe'));
+        $is_reviewed = false;
+        if(Auth::check()) {
+            $is_reviewed = $recipe->reviews->contains('user_id', Auth::id());
+        }
+
+        return view('recipes.show', compact('recipe', 'is_my_recipe', 'is_reviewed'));
     }
 
     /**
@@ -253,6 +259,9 @@ class RecipeController extends Controller
      */
     public function destroy(string $id)
     {
-        //
+        Recipe::where('id', $id)->delete();
+        flash()->warning('レシピを削除しました');
+
+        return redirect()->route('home');
     }
 }
