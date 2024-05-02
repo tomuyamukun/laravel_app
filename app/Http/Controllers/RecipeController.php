@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use App\Http\Requests\RecipeCreateRequest;
 use App\Http\Requests\RecipeUpdateRequest;
 use App\Models\Step;
+use App\Services\S3Upload;
 
 use function PHPUnit\Framework\throwException;
 
@@ -24,22 +25,12 @@ class RecipeController extends Controller
      */
     public function home()
     {
+        $recipeModel = new Recipe();
         // レシピを取得
-        $recipes = Recipe::select('recipes.id', 'recipes.title', 'recipes.description', 'recipes.created_at', 'recipes.image', 'users.name')
-            ->join('users', 'users.id', '=', 'recipes.user_id')
-            ->orderBy('recipes.created_at', 'desc')
-            ->limit(3)
-            ->get();
-
-        // ブラウザにデータを表示できる
-        // dd($recipes);
+        $recipes = $recipeModel->getRecipe();
 
         // レシピを取得
-        $popular_recipes = Recipe::select('recipes.id', 'recipes.title', 'recipes.description', 'recipes.created_at', 'recipes.image', 'recipes.views', 'users.name')
-            ->join('users', 'users.id', '=', 'recipes.user_id')
-            ->orderBy('recipes.views', 'desc')
-            ->limit(2)
-            ->get();
+        $popular_recipes = $recipeModel->getPopularRecipes();
 
         return view('home', compact('recipes', 'popular_recipes'));
     }
@@ -50,32 +41,9 @@ class RecipeController extends Controller
     public function index(Request $request)
     {
         $filters = $request->all();
-        // レシピを取得
-        $query = Recipe::query()->select('recipes.id', 'recipes.title', 'recipes.description', 'recipes.created_at', 'recipes.image', 'users.name',
-            \DB::raw('AVG(reviews.rating) as rating'))
-            ->join('users', 'users.id', '=', 'recipes.user_id')
-            ->leftJoin('reviews', 'reviews.recipe_id', '=', 'recipes.id')
-            ->groupBy('recipes.id')
-            ->orderBy('recipes.created_at', 'desc');
+        $recipeModel = new Recipe();
 
-        if( ! empty($filters)) {
-            // カテゴリー
-            if( ! empty($filters['categories'])) {
-                $query->whereIn('recipes.category_id', $filters['categories']);
-            }
-
-            // タイトル（like検索）
-            if( ! empty($filters['title'])) {
-                $query->where('recipes.title', 'like', '%'.$filters['title'].'%');
-            }
-
-            // 評価
-            if( ! empty($filters['rating'])) {
-                $query->havingRaw('AVG(reviews.rating) >= ?', [$filters['rating']]);
-            }
-
-        }
-        $recipes = $query->paginate(5);
+        $recipes = $recipeModel->indexRecipes($request);
 
         $categories = Category::all();
 
@@ -102,43 +70,22 @@ class RecipeController extends Controller
         $uuid = Str::uuid()->toString();
 
         // s3に画像をアップロード
-        $image = $request->file('image');
-        $path = Storage::disk('s3')->putFile('recipe', $image, 'public');
+        $s3Upload = new S3Upload();
+        $path = $s3Upload->upload($request);
         // s3のURL取得
-        $url = Storage::disk('s3')->url($path);
+        $url = $s3Upload->getUrl($path);
+
+        $insert_params = $this->setStoreRecipeParams($posts, $url, $uuid);
 
         // DBにs3のURLを保存
         try {
             DB::beginTransaction();
-            Recipe::insert([
-                'id' => $uuid,
-                'title' => $posts['title'],
-                'description' => $posts['description'],
-                'category_id' => $posts['category'],
-                'image' => $url,
-                'user_id' => Auth::id()
-            ]);
+            $s3Upload->storeS3(
+                $insert_params["recipe"],
+                $insert_params["ingredient"],
+                $insert_params["steps"]
+            );
 
-            $ingredients = [];
-            foreach($posts['ingredients'] as $key => $ingredient) {
-                $ingredients[$key] = [
-                    'recipe_id' => $uuid,
-                    'name' => $ingredient['name'],
-                    'quantity' => $ingredient['quantity']
-                ];
-            }
-            Ingredient::insert($ingredients);
-
-            // stepを作成
-            $steps = [];
-            foreach ($posts['steps'] as $key => $step) {
-                $steps[$key] = [
-                    'recipe_id' => $uuid,
-                    'step_number' => $key + 1,
-                    'description' => $step
-                ];
-            }
-            STEP::insert($steps);
             DB::commit();
         } catch (\Exception $e) {
             DB::rollback();
@@ -150,14 +97,49 @@ class RecipeController extends Controller
         return redirect()->route('recipe.show',['id' => $uuid]);
     }
 
+    private function setStoreRecipeParams($posts, $url, $uuid)
+    {
+        $recipe = [
+            'id' => $uuid,
+            'title' => $posts['title'],
+            'description' => $posts['description'],
+            'category_id' => $posts['category'],
+            'image' => $url,
+            'user_id' => Auth::id()
+        ];
+
+        $ingredients = [];
+        foreach($posts['ingredients'] as $key => $ingredient) {
+            $ingredients[$key] = [
+                'recipe_id' => $uuid,
+                'name' => $ingredient['name'],
+                'quantity' => $ingredient['quantity']
+            ];
+        }
+        // stepを作成
+        $steps = [];
+        foreach ($posts['steps'] as $key => $step) {
+            $steps[$key] = [
+                'recipe_id' => $uuid,
+                'step_number' => $key + 1,
+                'description' => $step
+            ];
+        }
+        return [
+            "recipe" => $recipe,
+            "ingredients" => $ingredients,
+            "steps" => $steps
+        ];
+    }
+
     /**
      * Display the specified resource.
      */
     public function show(string $id)
     {
-        $recipe = Recipe::with(['ingredients', 'steps', 'reviews', 'user'])
-            ->where('recipes.id', $id)
-            ->first();
+        $recipeModel = new Recipe();
+
+        $recipe = $recipeModel->getShowRecipe($id);
 
         // viewを１増やす
         $recipe_record = Recipe::find($id);
@@ -182,10 +164,9 @@ class RecipeController extends Controller
      */
     public function edit(string $id)
     {
-        $recipe = Recipe::with(['ingredients', 'steps', 'reviews', 'user'])
-            ->where('recipes.id', $id)
-            ->first()
-            ->toArray();
+        $recipeModel = new Recipe();
+
+        $recipe = $recipeModel->getEditRecipe($id);
 
         if( ! Auth::check() && (Auth::id() === $recipe['user_id'])) abort(403);
 
